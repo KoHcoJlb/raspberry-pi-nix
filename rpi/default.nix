@@ -351,7 +351,7 @@ in
           "reset-raspberrypi" # required for vl805 firmware to load
         ];
       };
-      kernelPackages = pkgs.linuxPackagesFor pkgs.rpi-kernels."${version}"."${board}";
+      kernelPackages = pkgs.linuxPackagesFor pkgs.rpi-kernel."${board}";
       loader = {
         grub.enable = lib.mkDefault false;
         initScript.enable = !cfg.uboot.enable;

@@ -1,7 +1,5 @@
 {
   rpi-linux-stable-src,
-  rpi-linux-6_6_78-src,
-  rpi-linux-6_12_17-src,
   rpi-firmware-src,
   rpi-firmware-nonfree-src,
   rpi-bluez-firmware-src,
@@ -9,75 +7,60 @@
 }:
 final: prev:
 let
-  versions = {
-    v6_6_51.src = rpi-linux-stable-src;
-    v6_6_78.src = rpi-linux-6_6_78-src;
-    v6_12_17 = {
-      src = rpi-linux-6_12_17-src;
-      patches = [
-        {
-          name = "remove-readme-target.patch";
-          patch = final.fetchpatch {
-            url = "https://github.com/raspberrypi/linux/commit/3c0fd51d184f1748b83d28e1113265425c19bcb5.patch";
-            hash = "sha256-v7uZOmPCUp2i7NGVgjqnQYe6dEBD+aATuP/oRs9jfuk=";
-          };
-        }
-      ];
-    };
-  };
   boards = [
     "bcm2711"
     "bcm2712"
   ];
 
-  # Helpers for building the `pkgs.rpi-kernels' map.
   rpi-kernel =
-    { version, board }:
+    board:
     let
-      kernel = builtins.getAttr version versions;
-      version-slug = builtins.replaceStrings [ "v" "_" ] [ "" "." ] version;
+      src = rpi-linux-stable-src;
+      version-slug = final.lib.trim (
+        builtins.readFile (
+          final.runCommand "get-kernel-version" { } ''
+            make -sC ${src} kernelversion > $out
+          ''
+        )
+      );
     in
-    {
-      "${version}"."${board}" =
-        (final.buildLinux {
-          modDirVersion = version-slug;
-          version = version-slug;
-          pname = "linux-rpi";
-          src = kernel.src;
-          defconfig = "${board}_defconfig";
-          structuredExtraConfig = with final.lib.kernel; {
-            # The perl script to generate kernel options sets unspecified
-            # parameters to `m` if possible [1]. This results in the
-            # unspecified config option KUNIT [2] getting set to `m` which
-            # causes DRM_VC4_KUNIT_TEST [3] to get set to `y`.
-            #
-            # This vc4 unit test fails on boot due to a null pointer
-            # exception with the existing config. I'm not sure why, but in
-            # any case, the DRM_VC4_KUNIT_TEST config option itself states
-            # that it is only useful for kernel developers working on the
-            # vc4 driver. So, I feel no need to deviate from the standard
-            # rpi kernel and attempt to successfully enable this test and
-            # other unit tests because the nixos perl script has this
-            # sloppy "default to m" behavior. So, I set KUNIT to `n`.
-            #
-            # [1] https://github.com/NixOS/nixpkgs/blob/85bcb95aa83be667e562e781e9d186c57a07d757/pkgs/os-specific/linux/kernel/generate-config.pl#L1-L10
-            # [2] https://github.com/raspberrypi/linux/blob/1.20230405/lib/kunit/Kconfig#L5-L14
-            # [3] https://github.com/raspberrypi/linux/blob/bb63dc31e48948bc2649357758c7a152210109c4/drivers/gpu/drm/vc4/Kconfig#L38-L52
-            KUNIT = no;
-          };
-          features.efiBootStub = false;
-          kernelPatches = if kernel ? "patches" then kernel.patches else [ ];
-          ignoreConfigErrors = true;
-        }).overrideAttrs
-          (oldAttrs: {
-            postConfigure = ''
-              # The v7 defconfig has this set to '-v7' which screws up our modDirVersion.
-              sed -i $buildRoot/.config -e 's/^CONFIG_LOCALVERSION=.*/CONFIG_LOCALVERSION=""/'
-              sed -i $buildRoot/include/config/auto.conf -e 's/^CONFIG_LOCALVERSION=.*/CONFIG_LOCALVERSION=""/'
-            '';
-          });
-    };
-  rpi-kernels = builtins.foldl' (b: a: final.lib.recursiveUpdate b (rpi-kernel a)) { };
+    (final.buildLinux {
+      inherit src;
+
+      modDirVersion = version-slug;
+      version = version-slug;
+      pname = "linux-rpi";
+      defconfig = "${board}_defconfig";
+      structuredExtraConfig = with final.lib.kernel; {
+        # The perl script to generate kernel options sets unspecified
+        # parameters to `m` if possible [1]. This results in the
+        # unspecified config option KUNIT [2] getting set to `m` which
+        # causes DRM_VC4_KUNIT_TEST [3] to get set to `y`.
+        #
+        # This vc4 unit test fails on boot due to a null pointer
+        # exception with the existing config. I'm not sure why, but in
+        # any case, the DRM_VC4_KUNIT_TEST config option itself states
+        # that it is only useful for kernel developers working on the
+        # vc4 driver. So, I feel no need to deviate from the standard
+        # rpi kernel and attempt to successfully enable this test and
+        # other unit tests because the nixos perl script has this
+        # sloppy "default to m" behavior. So, I set KUNIT to `n`.
+        #
+        # [1] https://github.com/NixOS/nixpkgs/blob/85bcb95aa83be667e562e781e9d186c57a07d757/pkgs/os-specific/linux/kernel/generate-config.pl#L1-L10
+        # [2] https://github.com/raspberrypi/linux/blob/1.20230405/lib/kunit/Kconfig#L5-L14
+        # [3] https://github.com/raspberrypi/linux/blob/bb63dc31e48948bc2649357758c7a152210109c4/drivers/gpu/drm/vc4/Kconfig#L38-L52
+        KUNIT = no;
+      };
+      features.efiBootStub = false;
+      ignoreConfigErrors = true;
+    }).overrideAttrs
+      (oldAttrs: {
+        postConfigure = ''
+          # The v7 defconfig has this set to '-v7' which screws up our modDirVersion.
+          sed -i $buildRoot/.config -e 's/^CONFIG_LOCALVERSION=.*/CONFIG_LOCALVERSION=""/'
+          sed -i $buildRoot/include/config/auto.conf -e 's/^CONFIG_LOCALVERSION=.*/CONFIG_LOCALVERSION=""/'
+        '';
+      });
 in
 {
   # disable firmware compression so that brcm firmware can be found at
@@ -117,10 +100,5 @@ in
   # `pkgs.rpi-kernels.<VERSION>.<BOARD>'.
   #
   # For example: `pkgs.rpi-kernels.v6_6_78.bcm2712'
-  rpi-kernels = rpi-kernels (
-    final.lib.cartesianProduct {
-      board = boards;
-      version = (builtins.attrNames versions);
-    }
-  );
+  rpi-kernel = final.lib.genAttrs boards rpi-kernel;
 }
