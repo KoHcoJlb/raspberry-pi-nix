@@ -41,11 +41,15 @@
     };
   };
 
-  outputs = srcs@{ self, ... }:
+  outputs =
+    srcs@{ self, ... }:
     let
       pinned = import srcs.nixpkgs {
         system = "aarch64-linux";
-        overlays = with self.overlays; [ core libcamera ];
+        overlays = with self.overlays; [
+          core
+          libcamera
+        ];
       };
     in
     {
@@ -64,21 +68,27 @@
       nixosConfigurations = {
         rpi-example = srcs.nixpkgs.lib.nixosSystem {
           system = "aarch64-linux";
-          modules = [ self.nixosModules.raspberry-pi self.nixosModules.sd-image ./example ];
+          modules = [
+            self.nixosModules.raspberry-pi
+            self.nixosModules.sd-image
+            ./example
+          ];
         };
       };
       checks.aarch64-linux = self.packages.aarch64-linux;
-      packages.aarch64-linux = with pinned.lib;
+      packages.aarch64-linux =
+        with pinned.lib;
         let
-          kernels =
-            foldlAttrs f { } pinned.rpi-kernels;
-          f = acc: kernel-version: board-attr-set:
-            foldlAttrs
-              (acc: board-version: drv: acc // {
-                "linux-${kernel-version}-${board-version}" = drv;
-              })
+          kernels = foldlAttrs f { } pinned.rpi-kernels;
+          f =
+            acc: kernel-version: board-attr-set:
+            foldlAttrs (
+              acc: board-version: drv:
               acc
-              board-attr-set;
+              // {
+                "linux-${kernel-version}-${board-version}" = drv;
+              }
+            ) acc board-attr-set;
         in
         {
           example-sd-image = self.nixosConfigurations.rpi-example.config.system.build.sdImage;
@@ -86,6 +96,7 @@
           libcamera = pinned.libcamera;
           wireless-firmware = pinned.raspberrypiWirelessFirmware;
           uboot-rpi-arm64 = pinned.uboot-rpi-arm64;
-        } // kernels;
+        }
+        // kernels;
     };
 }
